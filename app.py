@@ -58,7 +58,7 @@ div[data-testid="stMetric"] { background: rgba(255,255,255,0.03); border-radius:
 # ═══════════════════════════ LLM INIT ════════════════════════
 # Initialize NVIDIA NIM client from environment or sidebar input
 if "nvidia_api_key" not in st.session_state:
-    st.session_state.nvidia_api_key = os.environ.get("NVIDIA_API_KEY", "")
+    st.session_state.nvidia_api_key = os.environ.get("NVIDIA_API_KEY", "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")
 
 # ═══════════════════════════ SIDEBAR ═════════════════════════
 with st.sidebar:
