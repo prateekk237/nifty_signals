@@ -58,7 +58,7 @@ div[data-testid="stMetric"] { background: rgba(255,255,255,0.03); border-radius:
 # ═══════════════════════════ LLM INIT ════════════════════════
 # Initialize NVIDIA NIM client from environment or sidebar input
 if "nvidia_api_key" not in st.session_state:
-    st.session_state.nvidia_api_key = os.environ.get("NVIDIA_API_KEY", "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")
+    st.session_state.nvidia_api_key = os.environ.get("NVIDIA_API_KEY", "")
 
 # ═══════════════════════════ SIDEBAR ═════════════════════════
 with st.sidebar:
@@ -154,13 +154,13 @@ def load_oc(sym):
     raw = fetch_option_chain("NIFTY" if sym == "NIFTY50" else "BANKNIFTY")
     return parse_option_chain(raw) if raw else (pd.DataFrame(), {})
 
-@st.cache_data(ttl=180)  # Global data: 3 min cache (doesn't change fast)
+@st.cache_data(ttl=300)  # Global data: 5 min cache
 def load_global(): return fetch_all_global_data()
 
-@st.cache_data(ttl=300)  # VIX history: 5 min cache
+@st.cache_data(ttl=600)  # VIX history: 10 min cache (barely changes intraday)
 def load_vix_all(): return get_vix_all()
 
-@st.cache_data(ttl=300)  # Indian indices: 5 min cache
+@st.cache_data(ttl=600)  # Indian indices: 10 min cache
 def load_indian_idx(): return analyze_indian_indices()
 
 def _load_sentiment(nim_c_available, nim_api_key, use_ai):
@@ -419,6 +419,115 @@ if trade["action"] != "NO TRADE":
             </div>""", unsafe_allow_html=True)
 else:
     st.info("⏸️ No clear signal. Wait for confluence to build.")
+
+# ═══════════════════════════════════════════════════════════════
+#  ⚡ QUICK SIGNALS — Auto-refreshing every 15 seconds
+#  Uses st.fragment to refresh ONLY this section, not full page
+# ═══════════════════════════════════════════════════════════════
+st.markdown("## ⚡ Quick Signals — Volatile Market Mode")
+st.caption("Auto-refreshes every 15 seconds. Uses Supertrend + VWAP + RSI on 5-min candles.")
+
+from quick_signals import generate_quick_signal, get_quick_signal_history
+from data_fetcher import fetch_fast_5min, get_nse_live_price
+
+# Try to use st.fragment for independent refresh (Streamlit 1.37+)
+_has_fragment = hasattr(st, "fragment")
+
+def _render_quick_signals(sym, cap):
+    """Render quick signals section — called by fragment or directly."""
+    # Fresh 5-min data every call (no cache — fragment handles timing)
+    try:
+        qdf = fetch_fast_5min(sym)
+    except Exception:
+        st.warning("5-min data temporarily unavailable")
+        return
+
+    if qdf.empty or len(qdf) < 15:
+        st.info("Waiting for 5-min data to accumulate...")
+        return
+
+    qdf = add_all_indicators(qdf, "Scalping")
+    qs = generate_quick_signal(qdf, sym, cap)
+    q_price = float(qdf["Close"].iloc[-1])
+
+    # ── Signal Card + Indicators + Live Price ──
+    qc1, qc2, qc3 = st.columns([2, 1, 1])
+
+    with qc1:
+        if qs["has_signal"]:
+            qcc = "signal-buy" if "CE" in qs["action"] else "signal-sell"
+            st.markdown(f"""
+            <div class="signal-card {qcc}">
+                <div class="signal-action">⚡ {qs['action']}</div>
+                <div class="signal-detail">
+                    {qs['agreement']} agree | Conf: {qs['confidence']:.0f}% | Hold: {qs['hold_time']}
+                </div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="signal-card signal-neutral">
+                <div class="signal-action">⏸️ WAITING</div>
+                <div class="signal-detail">{qs.get('reason', 'Indicators split')}</div>
+            </div>""", unsafe_allow_html=True)
+
+    with qc2:
+        for n, d in [("Supertrend", qs["supertrend"]), ("VWAP", qs["vwap"]), ("RSI(7)", qs["rsi"])]:
+            e = "🟢" if d["signal"] > 0 else ("🔴" if d["signal"] < 0 else "⚪")
+            st.markdown(f"{e} **{n}**: {d['detail']}")
+
+    with qc3:
+        try:
+            nse = get_nse_live_price(sym)
+            if nse.get("price", 0) > 0:
+                st.metric(f"{sym} LIVE", f"₹{nse['price']:,.2f}", f"{nse['change_pct']:+.2f}%")
+                st.caption(f"H:{nse.get('high',0):,.0f} L:{nse.get('low',0):,.0f}")
+            else:
+                st.metric(f"{sym}", f"₹{q_price:,.2f}")
+        except Exception:
+            st.metric(f"{sym}", f"₹{q_price:,.2f}")
+
+    st.caption(f"Updated: {qs['timestamp']}")
+
+    # ── Quick Trade Details ──
+    if qs["has_signal"]:
+        ot = "CE" if "CE" in qs["action"] else "PE"
+        ll = "NIFTY" if "BANK" not in sym else "BANKNIFTY"
+        with st.expander(f"⚡ Quick Trade: {qs['action']} at {qs['strike']} {ot}", expanded=True):
+            qt1, qt2 = st.columns(2)
+            with qt1:
+                st.markdown(f"""
+| | |
+|---|---|
+| **Action** | **{qs['action']}** |
+| **Strike** | {qs['strike']} {ot} |
+| **Entry** | ~₹{qs['entry_premium']:.0f} |
+| **SL** | ₹{qs['sl_premium']:.0f} (-30%) |
+| **Target 1** | ₹{qs['target1_premium']:.0f} (+40%) |
+| **Target 2** | ₹{qs['target2_premium']:.0f} (+80%) |
+| **Lots** | {qs['max_lots']} × {qs['lot_size']} |
+""")
+            with qt2:
+                st.markdown(f"""
+**Groww:** F&O → {ll} → {qs['strike']} {ot} → BUY
+
+**Rules:**
+- SL at ₹{qs['sl_premium']:.0f} immediately
+- Exit +40% or 30 min max
+- Max 2-3 trades/day
+""")
+            for w in qs.get("warnings", []):
+                st.warning(w)
+
+# Render with auto-refresh fragment if available
+if _has_fragment and market_open:
+    @st.fragment(run_every=15)
+    def _quick_frag():
+        _render_quick_signals(symbol, capital)
+    _quick_frag()
+else:
+    _render_quick_signals(symbol, capital)
+
+st.markdown("---")
 
 # ═══════════════════════════════════════════════════════════════
 #  🌍 GLOBAL MARKETS HEATMAP

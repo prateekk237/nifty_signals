@@ -197,3 +197,67 @@ def get_previous_day_ohlc(symbol):
         return {"high": float(p["High"]), "low": float(p["Low"]),
                 "close": float(p["Close"]), "open": float(p["Open"])}
     return {"high": 0, "low": 0, "close": 0, "open": 0}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  NSE LIVE INDEX QUOTE (faster than yfinance for current price)
+# ═══════════════════════════════════════════════════════════════
+def fetch_nse_live_indices() -> dict:
+    """
+    Fetch live index prices from NSE allIndices API.
+    Returns dict of {index_name: {last, change, pctChange, open, high, low}}.
+    Much faster than yfinance for current prices.
+    """
+    from config import NSE_INDEX_URL
+    data = _nse_session.get(NSE_INDEX_URL)
+    if not data or "data" not in data:
+        return {}
+
+    results = {}
+    for item in data["data"]:
+        name = item.get("index", "")
+        results[name] = {
+            "last": item.get("last", 0),
+            "change": item.get("variation", 0),
+            "pctChange": item.get("percentChange", 0),
+            "open": item.get("open", 0),
+            "high": item.get("high", 0),
+            "low": item.get("low", 0),
+            "prev_close": item.get("previousClose", 0),
+        }
+    return results
+
+
+def get_nse_live_price(symbol: str) -> dict:
+    """Get live price for a specific index from NSE."""
+    index_map = {
+        "NIFTY50": "NIFTY 50",
+        "BANKNIFTY": "NIFTY BANK",
+        "NIFTY_IT": "NIFTY IT",
+        "NIFTY_FIN": "NIFTY FINANCIAL SERVICES",
+        "INDIAVIX": "INDIA VIX",
+    }
+    nse_name = index_map.get(symbol, symbol)
+
+    all_indices = fetch_nse_live_indices()
+    if nse_name in all_indices:
+        data = all_indices[nse_name]
+        return {
+            "price": float(data["last"]),
+            "change": float(data["change"]),
+            "change_pct": float(data["pctChange"]),
+            "open": float(data["open"]),
+            "high": float(data["high"]),
+            "low": float(data["low"]),
+            "prev_close": float(data["prev_close"]),
+            "source": "NSE_LIVE",
+        }
+    return {"price": 0, "change": 0, "change_pct": 0, "source": "UNAVAILABLE"}
+
+
+def fetch_fast_5min(symbol: str) -> pd.DataFrame:
+    """
+    Fetch latest 5-min data optimized for quick signals.
+    Uses shorter period (2 days) for faster download.
+    """
+    return fetch_ohlcv(symbol, "5m", "2d")
