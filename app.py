@@ -435,6 +435,15 @@ _has_fragment = hasattr(st, "fragment")
 
 def _render_quick_signals(sym, cap):
     """Render quick signals section — called by fragment or directly."""
+    # ── Market closed check ──
+    if not is_market_open():
+        st.markdown("""
+        <div class="signal-card signal-neutral">
+            <div class="signal-action">💤 MARKET CLOSED</div>
+            <div class="signal-detail">Quick signals activate during market hours (9:15 AM - 3:30 PM IST, Mon-Fri). Last data shown is from previous session.</div>
+        </div>""", unsafe_allow_html=True)
+        return
+
     # Fresh 5-min data every call (no cache — fragment handles timing)
     try:
         qdf = fetch_fast_5min(sym)
