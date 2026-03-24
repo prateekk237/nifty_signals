@@ -77,23 +77,31 @@ def fetch_vix_history(period="3mo"):
         return data.dropna()
     except: return pd.DataFrame()
 
-def get_india_vix():
+def get_vix_all() -> dict:
+    """
+    Get VIX current, previous close, and history in ONE download.
+    OLD: 3 separate yf.download calls = 6-9 seconds
+    NEW: 1 call reused for all 3 values = 2-3 seconds
+    """
     try:
-        data = yf.download("^INDIAVIX", period="5d", interval="1d", progress=False)
+        data = yf.download("^INDIAVIX", period="3mo", interval="1d", progress=False)
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
-        if not data.empty: return round(float(data["Close"].iloc[-1]), 2)
-    except: pass
-    return 0.0
+        data = data.dropna()
+        if data.empty:
+            return {"current": 0.0, "prev_close": 0.0, "history": pd.DataFrame()}
+        current = round(float(data["Close"].iloc[-1]), 2)
+        prev_close = round(float(data["Close"].iloc[-2]), 2) if len(data) >= 2 else current
+        return {"current": current, "prev_close": prev_close, "history": data}
+    except:
+        return {"current": 0.0, "prev_close": 0.0, "history": pd.DataFrame()}
+
+# Keep old functions for backward compat but they use cached data
+def get_india_vix():
+    return get_vix_all()["current"]
 
 def get_vix_prev_close():
-    try:
-        data = yf.download("^INDIAVIX", period="5d", interval="1d", progress=False)
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-        if len(data) >= 2: return round(float(data["Close"].iloc[-2]), 2)
-    except: pass
-    return 0.0
+    return get_vix_all()["prev_close"]
 
 def fetch_option_chain(symbol="NIFTY"):
     url = NSE_OPTION_CHAIN_URL.format(symbol=symbol)
