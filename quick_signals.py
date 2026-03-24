@@ -75,7 +75,7 @@ def generate_quick_signal(
     # 2. VWAP — institutional bias
     vwap_signal = 0
     vwap_detail = "N/A"
-    if "VWAP" in df.columns:
+    if "VWAP" in df.columns and not pd.isna(last["VWAP"]) and float(last["VWAP"]) > 0:
         vwap = float(last["VWAP"])
         pct_from_vwap = ((price - vwap) / vwap) * 100
         if price > vwap:
@@ -84,13 +84,12 @@ def generate_quick_signal(
         else:
             vwap_signal = -1
             vwap_detail = f"BELOW VWAP ({pct_from_vwap:+.2f}%)"
-    else:
-        # Fallback: use EMA 9 vs 21 if VWAP not available
-        if "EMA_9" in df.columns and "EMA_21" in df.columns:
-            e9 = float(last["EMA_9"])
-            e21 = float(last["EMA_21"])
-            vwap_signal = 1 if e9 > e21 else -1
-            vwap_detail = f"EMA9 {'>' if e9 > e21 else '<'} EMA21"
+    # Fallback: use EMA 9 vs 21 if VWAP unavailable or NaN
+    if vwap_signal == 0 and "EMA_9" in df.columns and "EMA_21" in df.columns:
+        e9 = float(last["EMA_9"])
+        e21 = float(last["EMA_21"])
+        vwap_signal = 1 if e9 > e21 else -1
+        vwap_detail = f"EMA9 {'>' if e9 > e21 else '<'} EMA21"
 
     # 3. RSI (7) — momentum
     rsi_signal = 0
