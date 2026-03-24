@@ -147,11 +147,11 @@ def calculate_confluence_score(
         score = score / total_weight
     score = np.clip(score, -1, 1)
 
-    # VIX panic adjustment
+    # VIX adjustment — reduce confidence but don't crush signals
     if vix_level > VIX_HIGH:
-        score *= 0.7
+        score *= 0.85   # Was 0.7 — too aggressive, killed all signals
     elif vix_level > VIX_NORMAL_HIGH:
-        score *= 0.85
+        score *= 0.92   # Was 0.85
 
     # Signal label
     if score >= STRONG_BUY_THRESHOLD: label = "STRONG BUY"
@@ -170,7 +170,7 @@ def generate_trade_recommendation(
     capital: float = DEFAULT_CAPITAL, timeframe: str = "Intraday",
 ) -> Dict:
     """Generate complete actionable trade recommendation."""
-    if signal_label == "NEUTRAL" or abs(confluence_score) < 0.15:
+    if signal_label == "NEUTRAL" or abs(confluence_score) < 0.10:
         return _no_trade("Insufficient confluence — signals are mixed")
 
     if "BANK" in symbol.upper():
@@ -180,7 +180,8 @@ def generate_trade_recommendation(
 
     atm_strike = get_atm_strike(current_price, strike_step)
     is_bullish = confluence_score > 0
-    confidence = min(abs(confluence_score) * 100 / 0.65 * 100, 98)
+    # Confidence: scale 0-98% based on how far score is from threshold
+    confidence = min(abs(confluence_score) / 0.45 * 100, 98)
 
     strategy_type = "BUY"
     if vix_level > VIX_HIGH and abs(confluence_score) < STRONG_BUY_THRESHOLD:
