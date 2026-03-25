@@ -43,10 +43,11 @@ echo ""
 echo "   Press Ctrl+C to stop the server"
 echo ""
 
-# Launch Streamlit
+# Launch Streamlit (FIXED FOR RAILWAY)
 streamlit run app.py \
-    --server.port 8501 \
-    --server.headless false \
+    --server.port $PORT \
+    --server.address 0.0.0.0 \
+    --server.headless true \
     --theme.base dark \
     --theme.primaryColor "#00e676" \
     --theme.backgroundColor "#0e1117" \
