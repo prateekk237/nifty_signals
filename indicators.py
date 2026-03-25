@@ -220,21 +220,23 @@ def calc_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 #  VWAP (Volume Weighted Average Price)
 # ═══════════════════════════════════════════════════════════════
 def calc_vwap(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate VWAP — resets daily for intraday data."""
+    """Calculate VWAP — resets daily. NaN-safe for zero volume."""
     result = df.copy()
-    if "Volume" not in result.columns:
+    if "Volume" not in result.columns or result["Volume"].sum() == 0:
+        # No volume data — use typical price as proxy
         result["VWAP"] = (result["High"] + result["Low"] + result["Close"]) / 3
         return result
 
     typical_price = (result["High"] + result["Low"] + result["Close"]) / 3
     tp_vol = typical_price * result["Volume"]
 
-    # Group by date for daily reset
     result["_date"] = result.index.date
-    result["VWAP"] = (
-        tp_vol.groupby(result["_date"]).cumsum() /
-        result["Volume"].groupby(result["_date"]).cumsum()
-    )
+    cum_vol = result["Volume"].groupby(result["_date"]).cumsum()
+    cum_tp_vol = tp_vol.groupby(result["_date"]).cumsum()
+
+    # Prevent division by zero — replace 0 volume with NaN, then forward-fill
+    result["VWAP"] = cum_tp_vol / cum_vol.replace(0, np.nan)
+    result["VWAP"] = result["VWAP"].ffill()  # Forward-fill NaN gaps
     result.drop("_date", axis=1, inplace=True)
 
     return result
