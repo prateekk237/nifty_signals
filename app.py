@@ -427,7 +427,7 @@ else:
 st.markdown("## ⚡ Quick Signals — Volatile Market Mode")
 st.caption("Auto-refreshes every 15 seconds. Uses Supertrend + VWAP + RSI on 5-min candles.")
 
-from quick_signals import generate_quick_signal, get_quick_signal_history
+from quick_signals import generate_quick_signal
 from data_fetcher import fetch_fast_5min, get_nse_live_price
 
 # Try to use st.fragment for independent refresh (Streamlit 1.37+)
@@ -456,7 +456,9 @@ def _render_quick_signals(sym, cap):
         return
 
     qdf = add_all_indicators(qdf, "Scalping")
-    qs = generate_quick_signal(qdf, sym, cap)
+    # Pass option chain for real LTP prices
+    qs_nearest_exp = oc_meta.get("expiry_dates", [""])[0] if oc_meta else ""
+    qs = generate_quick_signal(qdf, sym, cap, oc_df if not oc_df.empty else None, qs_nearest_exp)
     q_price = float(qdf["Close"].iloc[-1])
 
     # ── Signal Card + Indicators + Live Price ──
@@ -473,16 +475,36 @@ def _render_quick_signals(sym, cap):
                 </div>
             </div>""", unsafe_allow_html=True)
         else:
-            st.markdown(f"""
-            <div class="signal-card signal-neutral">
-                <div class="signal-action">⏸️ WAITING</div>
-                <div class="signal-detail">{qs.get('reason', 'Indicators split')}</div>
-            </div>""", unsafe_allow_html=True)
+            reason = qs.get('reason', 'Indicators split')
+            # Color the card differently for BLOCKED vs SIDEWAYS vs SPLIT
+            if "BLOCKED" in reason:
+                st.markdown(f"""
+                <div class="signal-card signal-sell">
+                    <div class="signal-action">🚫 SIGNAL BLOCKED</div>
+                    <div class="signal-detail">{reason}</div>
+                </div>""", unsafe_allow_html=True)
+            elif "SIDEWAYS" in reason:
+                st.markdown(f"""
+                <div class="signal-card signal-neutral" style="border-left-color: #9c27b0;">
+                    <div class="signal-action">↔️ SIDEWAYS MARKET</div>
+                    <div class="signal-detail">{reason}</div>
+                </div>""", unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div class="signal-card signal-neutral">
+                    <div class="signal-action">⏸️ WAITING</div>
+                    <div class="signal-detail">{reason}</div>
+                </div>""", unsafe_allow_html=True)
 
     with qc2:
         for n, d in [("Supertrend", qs["supertrend"]), ("VWAP", qs["vwap"]), ("RSI(7)", qs["rsi"])]:
             e = "🟢" if d["signal"] > 0 else ("🔴" if d["signal"] < 0 else "⚪")
             st.markdown(f"{e} **{n}**: {d['detail']}")
+        # ADX trend strength
+        adx_v = qs.get("adx", 0)
+        if adx_v > 0:
+            ae = "🟢" if adx_v > 25 else ("🟡" if adx_v > 18 else "🔴")
+            st.markdown(f"{ae} **ADX**: {adx_v:.1f} {'Strong' if adx_v > 25 else 'Weak' if adx_v < 18 else 'Moderate'}")
 
     with qc3:
         try:
@@ -509,7 +531,7 @@ def _render_quick_signals(sym, cap):
 |---|---|
 | **Action** | **{qs['action']}** |
 | **Strike** | {qs['strike']} {ot} |
-| **Entry** | ~₹{qs['entry_premium']:.0f} |
+| **Entry** | ~₹{qs['entry_premium']:.0f} {'🟢 LIVE' if qs.get('price_source')=='LIVE' else '⚪ EST'} |
 | **SL** | ₹{qs['sl_premium']:.0f} (-30%) |
 | **Target 1** | ₹{qs['target1_premium']:.0f} (+40%) |
 | **Target 2** | ₹{qs['target2_premium']:.0f} (+80%) |
